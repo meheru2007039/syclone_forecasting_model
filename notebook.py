@@ -634,7 +634,7 @@ class DownBlock(nn.Module):
 
         # Use checkpointing to reduce memory during training
         if self.training:
-            out, skip = checkpoint(_fn, out, t_emb)
+            out, skip = checkpoint(_fn, out, t_emb, use_reentrant=False)
         else:
             out, skip = _fn(out, t_emb)
 
@@ -715,7 +715,7 @@ class MidBlock(nn.Module):
 
         # Use checkpointing to reduce memory during training
         if self.training:
-            out = checkpoint(_fn, out, t_emb)
+            out = checkpoint(_fn, out, t_emb, use_reentrant=False)
         else:
             out = _fn(out, t_emb)
 
@@ -776,7 +776,7 @@ class UpBlock(nn.Module):
 
         # Use checkpointing to reduce memory during training
         if self.training:
-            out = checkpoint(_fn, out, t_emb)
+            out = checkpoint(_fn, out, t_emb, use_reentrant=False)
         else:
             out = _fn(out, t_emb)
 
