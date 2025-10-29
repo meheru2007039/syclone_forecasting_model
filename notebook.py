@@ -1363,19 +1363,19 @@ class Trainer:
         )
         self.criterion = self.criterion.to(self.device)
         if self.use_vae:
-        
+
             self.condition_downsample = nn.Sequential(
-                nn.Conv2d(config['condition_channels'], config['condition_channels'], 
+                nn.Conv2d(config['base_channels'], config['base_channels'],
                     kernel_size=3, stride=2, padding=1),
-                nn.GroupNorm(8, config['condition_channels']),
+                nn.GroupNorm(8, config['base_channels']),
                 nn.SiLU(),
-                nn.Conv2d(config['condition_channels'], config['condition_channels'], 
+                nn.Conv2d(config['base_channels'], config['base_channels'],
                     kernel_size=3, stride=2, padding=1),
-                nn.GroupNorm(8, config['condition_channels']),
+                nn.GroupNorm(8, config['base_channels']),
                 nn.SiLU(),
-                nn.Conv2d(config['condition_channels'], config['condition_channels'], 
+                nn.Conv2d(config['base_channels'], config['base_channels'],
                     kernel_size=3, stride=2, padding=1),
-                nn.GroupNorm(8, config['condition_channels']),
+                nn.GroupNorm(8, config['base_channels']),
                 nn.SiLU()
             ).to(self.device)
         else:
