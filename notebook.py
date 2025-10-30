@@ -16,6 +16,137 @@ from scipy import linalg
 import matplotlib.pyplot as plt
 import json
 from tqdm import tqdm
+import random
+
+# ============================================================================
+# DATA LOADER UTILITIES
+# ============================================================================
+
+def get_all_storms(root_dir, years):
+    """
+    Scan the data directory and collect all available storm names across specified years.
+
+    Args:
+        root_dir: Root directory containing year folders
+        years: List of year folder names (e.g., ['2005_0', '2016_0', '2022_0'])
+
+    Returns:
+        Dictionary mapping storm_name -> {'year': year, 'num_timesteps': count}
+    """
+    root_path = Path(root_dir)
+    all_storms = {}
+
+    for year_folder in years:
+        year_path = root_path / year_folder
+        if not year_path.exists():
+            print(f"Warning: Year folder {year_folder} not found at {year_path}")
+            continue
+
+        # Handle nested directory structure (year/year/storm)
+        nested_path = year_path / year_folder
+        if nested_path.exists():
+            year_path = nested_path
+
+        # Iterate through storm folders
+        for cyclone_folder in year_path.iterdir():
+            if not cyclone_folder.is_dir():
+                continue
+
+            storm_name = cyclone_folder.name
+
+            # Count timestep folders
+            timestep_folders = [f for f in cyclone_folder.iterdir() if f.is_dir()]
+            num_timesteps = len(timestep_folders)
+
+            # Store storm info
+            if storm_name not in all_storms:
+                all_storms[storm_name] = {
+                    'year': year_folder,
+                    'num_timesteps': num_timesteps,
+                    'num_samples': max(0, num_timesteps - 1)  # consecutive pairs
+                }
+
+    return all_storms
+
+
+def create_random_storm_split(root_dir, years, num_val_storms=5, test_storms=None,
+                              seed=42, min_timesteps=5):
+    """
+    Create a random storm-level split for train/val/test sets.
+
+    Args:
+        root_dir: Root directory containing year folders
+        years: List of year folder names
+        num_val_storms: Number of storms to use for validation
+        test_storms: List of storm names to use for testing (kept as-is)
+        seed: Random seed for reproducibility
+        min_timesteps: Minimum number of timesteps a storm must have to be included
+
+    Returns:
+        Dictionary with 'train_storms', 'val_storms', 'test_storms' lists
+    """
+    # Set random seed for reproducibility
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # Get all available storms
+    all_storms = get_all_storms(root_dir, years)
+
+    if not all_storms:
+        raise ValueError(f"No storms found in {root_dir} for years {years}")
+
+    # Filter storms by minimum timesteps
+    valid_storms = {
+        name: info for name, info in all_storms.items()
+        if info['num_timesteps'] >= min_timesteps
+    }
+
+    print(f"\nFound {len(all_storms)} total storms, {len(valid_storms)} with >= {min_timesteps} timesteps")
+
+    # Initialize test storms (keep as specified)
+    if test_storms is None:
+        test_storms = []
+
+    # Get list of storm names available for train/val split
+    available_storms = [name for name in valid_storms.keys() if name not in test_storms]
+
+    if len(available_storms) < num_val_storms:
+        raise ValueError(
+            f"Not enough storms for split. Available: {len(available_storms)}, "
+            f"Requested val: {num_val_storms}"
+        )
+
+    # Randomly select validation storms
+    random.shuffle(available_storms)
+    val_storms = available_storms[:num_val_storms]
+    train_storms = available_storms[num_val_storms:]
+
+    # Print split statistics
+    print(f"\nStorm-level split:")
+    print(f"  Training: {len(train_storms)} storms")
+    print(f"  Validation: {len(val_storms)} storms")
+    print(f"  Test: {len(test_storms)} storms")
+
+    # Calculate sample counts
+    train_samples = sum(valid_storms[s]['num_samples'] for s in train_storms)
+    val_samples = sum(valid_storms[s]['num_samples'] for s in val_storms)
+    test_samples = sum(valid_storms[s]['num_samples'] for s in test_storms if s in valid_storms)
+
+    print(f"\nExpected sample counts:")
+    print(f"  Training: {train_samples} samples")
+    print(f"  Validation: {val_samples} samples")
+    print(f"  Test: {test_samples} samples")
+
+    print(f"\nValidation storms: {val_storms}")
+    print(f"Test storms: {test_storms}")
+
+    return {
+        'train_storms': train_storms,
+        'val_storms': val_storms,
+        'test_storms': test_storms,
+        'storm_info': valid_storms
+    }
+
 
 # ============================================================================
 # DATA LOADER
@@ -1851,50 +1982,52 @@ def main():
     # Configuration
     config = {
         # Data
-        'root_dir': r'/kaggle/input/setcd-dataset',  
+        'root_dir': r'/kaggle/input/setcd-dataset',
         'train_years': ['2005_0', '2016_0', '2022_0'],
-        'test_storm': ['2022349N13068'],
-        'val_storm': ['2022345N17125'],
-        'val_years': ['2022_0'],  # Separate validation years
+        'test_storm': ['2022349N13068'],  # Keep test set as-is
+        'num_val_storms': 5,  # Number of storms for validation
+        'random_seed': 42,  # For reproducible splits
+        'min_timesteps': 5,  # Minimum timesteps per storm
+        'val_years': ['2022_0'],  # Separate validation years (unused if random split)
         'batch_size': 8,
         'num_workers': 4,
         'img_size': 256,  # Full resolution
         'latent_spatial_size': 32,  # 256/8 = 32
-        
+
     'base_channels': 128,
         'channel_mults': (1, 2, 4, 8),
         'num_heads': 4,
         'embed_dim': 128,
         'condition_channels': 64,
         't_emb_dim': 128,
-        
+
         # Diffusion
         'num_timesteps': 1000,
     'beta_start': 8.5e-4,
     'beta_end': 0.012,
         'use_vae': True,
-        'latent_dim': 64,         
-        'vae_base_channels': 64,  
-        
+        'latent_dim': 64,
+        'vae_base_channels': 64,
+
         # Losses
         'use_lpips': True,
         'lpips_weight': 0.005,
         'kl_weight': 5e-6,
         'kl_anneal_epochs': 10,
-        
+
         # Training
-        'num_epochs': 50,          
-        'learning_rate': 1e-4,     
+        'num_epochs': 50,
+        'learning_rate': 1e-4,
         'min_lr': 1e-6,
         'weight_decay': 1e-4,
         'loss_type': 'mse',
         'use_l1': False,
         'l1_weight': 0.1,
         # Eval and Checkpoints
-        'eval_every': 10,  
+        'eval_every': 10,
         'eval_samples': 50,
-        'save_every': 10,         
-        'sample_every': 10,       
+        'save_every': 10,
+        'sample_every': 10,
         'plot_every': 5,
         'checkpoint_dir': './checkpoints',
         'output_dir': './outputs',
@@ -1902,13 +2035,31 @@ def main():
         # Device
         'device': 'cuda' if torch.cuda.is_available() else 'cpu'
     }
-    
+
     print("Configuration:")
     print(json.dumps(config, indent=4))
-    
-    # Create dataloaders
-    print("\nCreating dataloaders...")
-    
+
+    # Create random storm-level split
+    print("\n" + "="*80)
+    print("Creating random storm-level split...")
+    print("="*80)
+
+    storm_split = create_random_storm_split(
+        root_dir=config['root_dir'],
+        years=config['train_years'],
+        num_val_storms=config['num_val_storms'],
+        test_storms=config['test_storm'],
+        seed=config['random_seed'],
+        min_timesteps=config['min_timesteps']
+    )
+
+    # Update config with selected storms
+    config['val_storm'] = storm_split['val_storms']
+
+    print("\n" + "="*80)
+    print("Creating dataloaders...")
+    print("="*80)
+
     train_loader, val_loader, test_loader = get_dataloaders(
         root_dir=config['root_dir'],
         batch_size=config['batch_size'],
@@ -1917,7 +2068,7 @@ def main():
         val_years=config.get('val_years', config['train_years']),  # Use separate val_years if specified
         test_years=config.get('test_years', config['train_years']),
         test_storm=config['test_storm'],
-        val_storm=config['val_storm'],  # Fixed: use separate val_storm
+        val_storm=config['val_storm'],  # Now contains 5 random storms
         img_size=config['img_size'],  # Pass img_size to dataloader
     )
     
