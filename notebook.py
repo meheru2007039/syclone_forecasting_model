@@ -661,23 +661,19 @@ class VAEEncoder(nn.Module):
     """Encodes images to latent space (mu, logvar)"""
     def __init__(self, in_channels=1, latent_dim=64, base_channels=64):
         super().__init__()
-        # 256 -> 128 -> 64 -> 32
+        # 256 -> 128 -> 64
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channels, base_channels, 4, 2, 1),
             nn.GroupNorm(8, base_channels),
             nn.SiLU(),
-                    
+
             nn.Conv2d(base_channels, base_channels * 2, 4, 2, 1),
             nn.GroupNorm(8, base_channels * 2),
             nn.SiLU(),
-
-            nn.Conv2d(base_channels * 2, base_channels * 4, 4, 2, 1),
-            nn.GroupNorm(8, base_channels * 4),
-            nn.SiLU(),
         )
-        
-        self.fc_mu = nn.Conv2d(base_channels * 4, latent_dim, 1)
-        self.fc_logvar = nn.Conv2d(base_channels * 4, latent_dim, 1)
+
+        self.fc_mu = nn.Conv2d(base_channels * 2, latent_dim, 1)
+        self.fc_logvar = nn.Conv2d(base_channels * 2, latent_dim, 1)
         
     def forward(self, x):
         h = self.encoder(x)
@@ -694,20 +690,16 @@ class VAEEncoder(nn.Module):
 class VAEDecoder(nn.Module):
     def __init__(self, latent_dim=64, out_channels=1, base_channels=64):
         super().__init__()
-        # Designed to invert the encoder above: latent 32x32 -> 64 -> 128 -> 256
+        # Designed to invert the encoder above: latent 64x64 -> 128 -> 256
         self.decoder = nn.Sequential(
-            nn.Conv2d(latent_dim, base_channels * 4, 1),
-            nn.GroupNorm(8, base_channels * 4),
-            nn.SiLU(),
-            
-            nn.ConvTranspose2d(base_channels * 4, base_channels * 2, 4, 2, 1),
+            nn.Conv2d(latent_dim, base_channels * 2, 1),
             nn.GroupNorm(8, base_channels * 2),
             nn.SiLU(),
-            
+
             nn.ConvTranspose2d(base_channels * 2, base_channels, 4, 2, 1),
             nn.GroupNorm(8, base_channels),
             nn.SiLU(),
-            
+
             nn.ConvTranspose2d(base_channels, base_channels, 4, 2, 1),
             nn.GroupNorm(8, base_channels),
             nn.SiLU(),
@@ -1276,7 +1268,7 @@ def evaluate_model(model, dataloader, scheduler, device,
             batch_size = target.shape[0]
         
             if vae_decoder is not None:
-                latent_spatial_size = target.shape[-1] // 8  # e.g., 256 -> 32
+                latent_spatial_size = target.shape[-1] // 4  # e.g., 256 -> 64
                 # UNet's in_channels includes both noise and condition channels
                 latent_channels = model.init_conv.in_channels - model.condition_encoder.output_channels
                 
@@ -1340,7 +1332,7 @@ def save_comparison_images(model, dataloader, scheduler,
         batch_size = target.shape[0]
         
         if vae_decoder is not None:
-            latent_spatial_size = target.shape[-1] // 8  # e.g., 256 -> 32
+            latent_spatial_size = target.shape[-1] // 4  # e.g., 256 -> 64
             # UNet's in_channels includes both noise and condition channels
             latent_channels = model.init_conv.in_channels - model.condition_encoder.output_channels
             
@@ -1496,10 +1488,6 @@ class Trainer:
         if self.use_vae:
 
             self.condition_downsample = nn.Sequential(
-                nn.Conv2d(config['base_channels'], config['base_channels'],
-                    kernel_size=3, stride=2, padding=1),
-                nn.GroupNorm(8, config['base_channels']),
-                nn.SiLU(),
                 nn.Conv2d(config['base_channels'], config['base_channels'],
                     kernel_size=3, stride=2, padding=1),
                 nn.GroupNorm(8, config['base_channels']),
@@ -1992,7 +1980,7 @@ def main():
         'batch_size': 8,
         'num_workers': 4,
         'img_size': 256,  # Full resolution
-        'latent_spatial_size': 32,  # 256/8 = 32
+        'latent_spatial_size': 64,  # 256/4 = 64
 
     'base_channels': 128,
         'channel_mults': (1, 2, 4, 8),
